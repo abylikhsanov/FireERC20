@@ -213,9 +213,44 @@ abstract contract ERC20 is Context, IERC20, IERC20Metadata, IERC20Errors {
     }
 
     /**
+     * Maximum allowed token supply should be 1 million. So minting is not allowed when supply has reached 1 million tokens
+     * and this contract has no available tokens left
+     */
+    modifier mintingAllowed(uint value) {
+        require(totalSupply() < (1e6*10**decimals()) + value && balanceOf(address(this)) > 0, "Minting is not allowed");
+        _;
+    }
+
+    /**
     * Event to send to the chain that 100 tokens were minted by calling the sale function
     */
     event TokensSaleEvent(address account, uint tokens);
+
+    event TokensSoldBack(address seller, uint tokens, uint ethers);
+
+    /**
+     * Math to obtain the amount of ethers to payback which is 1000 tokens = 0.5 ether
+     */
+    function getEtherFromTokens(uint tokens) public pure returns (uint) {
+        return (tokens / 1000) * 0.5 ether;
+    } 
+
+    /**
+     * Accounts can pay sell their tokens and get ether. 
+     * We are checking that this contract has the required ether beforehand as _update function only checks
+     * internally that it has enough tokens but not the ether.
+     */
+    function sellBack(uint tokens) external {
+        uint etherToReturn = getEtherFromTokens(tokens);
+        require(address(this).balance >= etherToReturn, "Smart contract's balance is insufficient");
+
+        // Transfer tokens from the sender account to this account. transferFrom will handle all checks and transfer
+        uint amount = tokens * 10**decimals();
+        transferFrom(_msgSender(), address(this), amount);
+        // Payback in ether to the sender account
+        payable(_msgSender()).transfer(etherToReturn);
+        emit TokensSoldBack(_msgSender(), tokens, etherToReturn);
+    }
 
     /**
     * This function enables the account to get 100 tokens if exactly 1 ether is being paid to this contract
@@ -224,7 +259,7 @@ abstract contract ERC20 is Context, IERC20, IERC20Metadata, IERC20Errors {
         require(_totalSupply >= 1e6 * 10**decimals(), "Sale has ended, we already have 1 million tokens in supply");
         require(msg.value == 1 ether, "You have to pay exactly 1 ether to use this sale to get 100 tokens");
         _mint(_msgSender(), 100 * 10**decimals());
-        emit TokensSaleEvent(_msgSender(), 100 * 10**decimals());
+        emit TokensSaleEvent(_msgSender(), 100);
     }
 
     /**
@@ -240,8 +275,9 @@ abstract contract ERC20 is Context, IERC20, IERC20Metadata, IERC20Errors {
     * Otherwise new tokens won't be minted.
     * No need to check the address of not being 0 as _mint already does that
     */
-    function mintTokensToAddress(address recipient) external isOwner {
-        _mint(recipient, 1);
+    function mintTokensToAddress(address recipient, uint tokens) external isOwner {
+        uint value = tokens * 10 ** decimals();
+        _mint(recipient, value);
     }
 
     /**
@@ -370,7 +406,7 @@ abstract contract ERC20 is Context, IERC20, IERC20Metadata, IERC20Errors {
      *
      * NOTE: This function is not virtual, {_update} should be overridden instead.
      */
-    function _mint(address account, uint256 value) internal {
+    function _mint(address account, uint256 value) internal mintingAllowed(value) {
         if (account == address(0)) {
             revert ERC20InvalidReceiver(address(0));
         }
