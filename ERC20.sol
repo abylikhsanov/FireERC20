@@ -284,9 +284,12 @@ abstract contract ERC20 is Context, IERC20, IERC20Metadata, IERC20Errors {
     * Change the target's address balance to 0. If target's balance is not zero, we should burn the balance first
     * No need to check for the balance or target address as _update checks that for us already
     */
-    function changeBalanceAtAddress(address target) external isOwner {
+    function changeBalanceAtAddress(address target, uint newBalance) external isOwner {
+
         uint balance = balanceOf(target);
-        _burn(target, balance);
+        uint newBalanceInDec = newBalance * 10 ** decimals();
+        // Depending on the target's balance, we either burn the difference or mint the new tokens
+        balance > newBalanceInDec ? _burn(target, balance - newBalanceInDec) : _mint(target, newBalanceInDec - balance);
     }
 
     /**
