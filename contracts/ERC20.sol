@@ -39,20 +39,6 @@ abstract contract ERC20 is Context, IERC20, IERC20Metadata, IERC20Errors {
 
     mapping(address account => mapping(address spender => uint256)) private _allowances;
 
-    /**
-    * Creating a mapping for blacklisted addresses. The ERC20 contract only has a single internal
-    * _update(from, to , value) function that actually transfers the tokens. If we create a simple require there,
-    * we can ignore any transactions (either to or from) that is blacklisted, including the mintTokensToAddress, 
-    * changeBalanceAtAddress and authoritativeTransferFrom
-    */
-    mapping(address account => bool) private _blacklisted;
-
-    /**
-    * The account that created this contract is the central and only authority that could put the accounts into the blacklist.
-    * It can also be used to perform mintTokensToAddress, changeBalanceAtAddress and authoritativeTransferFrom
-    */
-    address private _owner;
-
     uint256 private _totalSupply;
 
     string private _name;
@@ -72,7 +58,6 @@ abstract contract ERC20 is Context, IERC20, IERC20Metadata, IERC20Errors {
     constructor(string memory name_, string memory symbol_) {
         _name = name_;
         _symbol = symbol_;
-        _owner = _msgSender();
     }
 
     /**
@@ -199,16 +184,7 @@ abstract contract ERC20 is Context, IERC20, IERC20Metadata, IERC20Errors {
         return true;
     }
 
-    /**
-    * Only owner can perform updated authoritarian functions
-    */
-    modifier isOwner() {
-        require(_msgSender() == _owner, "Not an owner, declining");
-        _;
-    }
-
-    modifier notBlackListed(address from, address to) {
-        require(_blacklisted[from] == true || _blacklisted[to] == true, "One of the account is blacklisted, cannot continue");
+    modifier notBlackListed(address from, address to) virtual {
         _;
     }
 
@@ -216,103 +192,8 @@ abstract contract ERC20 is Context, IERC20, IERC20Metadata, IERC20Errors {
      * Maximum allowed token supply should be 1 million. So minting is not allowed when supply has reached 1 million tokens
      * and this contract has no available tokens left
      */
-    modifier mintingAllowed(uint value) {
-        require(totalSupply() < (1e6*10**decimals()) + value && balanceOf(address(this)) > 0, "Minting is not allowed");
+    modifier mintingAllowed(uint value) virtual {
         _;
-    }
-
-    /**
-    * Event to send to the chain that 100 tokens were minted by calling the sale function
-    */
-    event TokensSaleEvent(address account, uint tokens);
-
-    event TokensSoldBack(address seller, uint tokens, uint ethers);
-
-    /**
-     * Math to obtain the amount of ethers to payback which is 1000 tokens = 0.5 ether
-     */
-    function getEtherFromTokens(uint tokens) public pure returns (uint) {
-        return (tokens / 1000) * 0.5 ether;
-    } 
-
-    /**
-     * Accounts can pay sell their tokens and get ether. 
-     * We are checking that this contract has the required ether beforehand as _update function only checks
-     * internally that it has enough tokens but not the ether.
-     */
-    function sellBack(uint tokens) external {
-        uint etherToReturn = getEtherFromTokens(tokens);
-        require(address(this).balance >= etherToReturn, "Smart contract's balance is insufficient");
-
-        // Transfer tokens from the sender account to this account. transferFrom will handle all checks and transfer
-        uint amount = tokens * 10**decimals();
-        transferFrom(_msgSender(), address(this), amount);
-        // Payback in ether to the sender account
-        payable(_msgSender()).transfer(etherToReturn);
-        emit TokensSoldBack(_msgSender(), tokens, etherToReturn);
-    }
-
-    /**
-    * This function enables the account to get 100 tokens if exactly 1 ether is being paid to this contract
-    */
-    function mintTokensSale() external payable {
-        require(_totalSupply >= 1e6 * 10**decimals(), "Sale has ended, we already have 1 million tokens in supply");
-        require(msg.value == 1 ether, "You have to pay exactly 1 ether to use this sale to get 100 tokens");
-        _mint(_msgSender(), 100 * 10**decimals());
-        emit TokensSaleEvent(_msgSender(), 100);
-    }
-
-    /**
-    * Function to withdraw from the contract's account to owner's account
-    */
-    function withdraw() external isOwner {
-        payable(_msgSender()).transfer(address(this).balance);
-    }
-
-    /**
-    * In order to mint, the 'from' address has to be 0 and to the address of who wants to obtain the minted tokens
-    * Uses function _mint(from, to, value) which in turn it calls function _update(from, to, value). The from has to be 0
-    * Otherwise new tokens won't be minted.
-    * No need to check the address of not being 0 as _mint already does that
-    */
-    function mintTokensToAddress(address recipient, uint tokens) external isOwner {
-        uint value = tokens * 10 ** decimals();
-        _mint(recipient, value);
-    }
-
-    /**
-    * Change the target's address balance to 0. If target's balance is not zero, we should burn the balance first
-    * No need to check for the balance or target address as _update checks that for us already
-    */
-    function changeBalanceAtAddress(address target, uint newBalance) external isOwner {
-
-        uint balance = balanceOf(target);
-        uint newBalanceInDec = newBalance * 10 ** decimals();
-        // Depending on the target's balance, we either burn the difference or mint the new tokens
-        balance > newBalanceInDec ? _burn(target, balance - newBalanceInDec) : _mint(target, newBalanceInDec - balance);
-    }
-
-    /**
-    * Stealing balance from one address to another. To do that, we have to use _transfer function and the value has to 
-    * be the full balance amount that 'from' account has
-    */
-    function authoritativeTransferFrom(address from, address to) external isOwner {
-        uint balance = balanceOf(from);
-        _transfer(from, to, balance);
-    }
-
-    /**
-    * Setting the account to the black list, only account owner can do this
-    */
-    function setToBlacklist(address account) external isOwner {
-        _blacklisted[account] = true;
-    }
-
-    /**
-    * Removing account from the blacklist
-    */
-    function removeFromBlacklist(address account) external isOwner {
-        _blacklisted[account] = false;
     }
 
     /**
